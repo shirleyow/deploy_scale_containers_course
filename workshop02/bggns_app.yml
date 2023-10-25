@@ -1,0 +1,67 @@
+---
+apiVersion: apps/v1
+kind: Deployment 
+metadata:
+  name: bggapp-deploy
+  namespace: myns-2
+  labels:
+    app: bgg
+    name: bggapp-deploy 
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: bgg
+      name: bggapp-po
+  template:
+    metadata:
+      name: bggapp-po
+      labels:
+        app: bgg
+        name: bggapp-po
+    spec: 
+      containers:
+      - name: bggapp-container 
+        image: stackupiss/bgg-backend:v2
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: BGG_DB_USER
+          value: root
+        - name: BGG_DB_HOST
+          value: bggdb-svc.myns-2.svc.cluster.local
+        envFrom:
+        - secretRef:
+            name: bgg-secret
+        ports:
+        - containerPort: 3000
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 3000
+          periodSeconds: 30
+          timeoutSeconds: 3
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 3000
+          periodSeconds: 30
+          timeoutSeconds: 3
+          failureThreshold: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: bggapp-svc # service is in the same namespace as the pod that it's routing to
+  namespace: myns-2 
+  labels:
+    app: bgg
+    name: bggapp-svc
+spec:
+  type: NodePort # adds the NodePort
+  selector: # what are the pods that I want to deploy to
+      app: bgg
+      name: bggapp-po # note to expose to bggapp-deploy deployment (expose to the pod)
+  ports:
+  - port: 3000
+    targetPort: 3000 # the container port

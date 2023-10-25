@@ -1,0 +1,69 @@
+---
+apiVersion: v1 
+kind: Secret 
+metadata:
+  name: dov-secret 
+  namespace: myns 
+  labels:
+    app: dov 
+type: Opaque 
+data:
+  INSTANCE_NAME: dGhpcyBpcyBhIGJhc2U2NCBlbmNvZGVkIHN0cmluZw==
+  DB_PASSWORD: Y2hhbmdlaXQ=
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dov-deploy
+  namespace: myns
+  labels:
+    app: dov
+spec:
+  replicas: 3
+  selector:
+    matchLabels: # selector, to tell this yml file to only manage the pods in the namespace that match the following label key-value pairs
+      app: dov
+  template: # pod template
+    metadata:
+      name: dov-po # name -po just to indicate that it's a pod (optional)
+      labels: # key-value pairs, easy to search, can just specify whatever e.g. dept: eng
+        app: dov
+        dept: eng
+    spec:
+      containers: # each - is an element, must keep it aligned for each container
+      - name: dov-container
+        image: chukmunnlee/dov-bear:v5
+        imagePullPolicy: IfNotPresent # pull if not present
+        env:
+        - name: INSTANCE_HASH # can get the value of the env variable from somewhere else
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        envFrom:
+        - secretRef:
+            name: dov-secret
+        ports:
+        - containerPort: 3000 # specify port binding later
+        livenessProbe: # readinessprobe can be the exact same, except path is diff
+          httpGet:
+            path: /healthz
+            port: 3000
+          periodSeconds: 30
+          timeoutSeconds: 3
+          failureThreshold: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dov-svc # service is in the same namespace as the pod that it's routing to
+  namespace: myns 
+  labels:
+    app: dov
+spec:
+  type: NodePort # adds the NodePort
+  selector: # what are the pods that I want to deploy to
+      app: dov
+      dept: eng
+  ports:
+  - port: 8080
+    targetPort: 3000 # the container port
