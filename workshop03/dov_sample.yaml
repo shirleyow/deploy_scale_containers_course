@@ -1,0 +1,101 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: dovns
+
+---
+apiVersion: v1 
+kind: Secret 
+metadata:
+  name: dov-secret 
+  namespace: dovns 
+  labels:
+    app: dov 
+type: Opaque 
+data:
+  INSTANCE_NAME: dGhpcyBpcyBhIGJhc2U2NCBlbmNvZGVkIHN0cmluZw==
+
+---
+apiVersion: apps/v1 
+kind: Deployment 
+metadata:
+  name: dov-deploy
+  namespace: dovns
+  labels:
+    app: dov 
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: dov
+      dept: eng
+  template:
+    metadata:
+      name: dov-po
+      labels:
+        app: dov
+        dept: eng
+    spec: 
+      containers:
+      - name: dov-container 
+        image: chukmunnlee/dov-bear:v5 
+        imagePullPolicy: IfNotPresent
+        env: 
+        - name: INSTANCE_HASH
+          valueFrom: 
+            fieldRef:
+              fieldPath: status.podIP
+        envFrom:
+        - secretRef:
+            name: dov-secret
+        ports:
+        - name: dov-port 
+          containerPort: 3000
+        livenessProbe:
+          httpGet:
+            path: /healthz 
+            port: 3000
+          periodSeconds: 30
+          timeoutSeconds: 3
+          failureThreshold: 3
+
+---
+apiVersion: v1 
+kind: Service 
+metadata:
+  name: dov-svc 
+  namespace: dovns 
+  labels: 
+    app: dov 
+spec: 
+  type: ClusterIP 
+  selector: 
+    app: dov
+    dept: eng
+  ports:
+  - port: 8080
+    targetPort: dov-port
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: dov-ing
+  namespace: dovns
+  labels:
+    app: dov
+    name: dov-ing
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: dov-146.190.195.35.nip.io
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: dov-svc
+            port:
+              number: 8080

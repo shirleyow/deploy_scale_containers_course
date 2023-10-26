@@ -1,0 +1,80 @@
+---
+apiVersion: apps/v1 
+kind: Deployment 
+metadata:
+  name: codeserver-deploy
+  namespace: codeserver-ns1
+  labels:
+    app: codeserver
+    name: codeserver-deploy
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: codeserver
+      name: codeserver-po
+  template:
+    metadata:
+      name: codeserver-po
+      labels:
+        app: codeserver
+        name: codeserver-po
+    spec:
+      volumes:
+      - name: data-vol
+        persistentVolumeClaim:
+          claimName: codeserver-pvc
+
+      containers:
+      - name: codeserver-container 
+        image: linuxserver/code-server:amd64-latest
+        imagePullPolicy: IfNotPresent
+        envFrom:
+        - configMapRef:
+            name: codeserver-config
+        - secretRef:
+            name: codeserver-secret
+        ports:
+        - containerPort: 8443
+        volumeMounts:
+        - name: data-vol
+          mountPath: /config/workspace
+---
+apiVersion: v1 
+kind: Service 
+metadata:
+  name: codeserver-svc 
+  namespace: codeserver-ns1 
+  labels: 
+    app: codeserver
+    name: codeserver-svc
+spec: 
+  type: ClusterIP 
+  selector: 
+    app: codeserver
+    name: codeserver-po
+  ports:
+  - port: 8443
+    targetPort: 8443
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: codeserver-ing
+  namespace: codeserver-ns1
+  labels:
+    app: codeserver
+    name: codeserver-ing
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: code-server.157.230.193.55.nip.io
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: codeserver-svc
+            port:
+              number: 8443
