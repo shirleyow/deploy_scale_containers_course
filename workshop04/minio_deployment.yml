@@ -1,0 +1,177 @@
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: minio-svc
+  namespace: minio-ns
+spec: 
+  type: ClusterIP 
+  selector: 
+    app: minio
+    name: minio-po
+  ports:
+  - name: minio-data
+    port: 9000
+    targetPort: 9000
+  - name: minio-console
+    port: 9090
+    targetPort: 9090
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: minio-hsvc
+  namespace: minio-ns
+spec:
+  clusterIP: None
+  selector:
+    app: minio
+    name: minio-po
+  ports:
+  - name: minio-data
+    port: 9000
+    targetPort: 9000
+  - name: minio-console
+    port: 9090
+    targetPort: 9090
+--- 
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: minio-sts
+  namespace: minio-ns
+spec:
+  replicas: 4
+  serviceName: minio-hsvc
+  selector:
+    matchLabels:
+      app: minio
+      name: minio-po
+  volumeClaimTemplates:
+  - metadata: 
+      name: data-vol
+    spec:
+      accessModes: [ ReadWriteOnce ]
+      storageClassName: do-block-storage 
+      resources:
+        requests:
+          storage: 1Gi
+  template:
+    metadata:
+      name: minio-po
+      labels:
+        app: minio
+        name: minio-po
+    spec:
+      initContainers: # to only uncomment this after the containers are running
+      - name: busybox
+        image: busybox
+        imagePullPolicy: IfNotPresent
+        command:
+        - /bin/sh
+        - -c
+        - "chown 1001:1001 /data" # to change to user 1001
+        volumeMounts:
+        - name: data-vol
+          mountPath: /data
+      containers:
+      - name: minio-container
+        image: bitnami/minio:2023.10.25
+        imagePullPolicy: IfNotPresent
+        volumeMounts:
+        - name: data-vol
+          mountPath: /data
+        command:
+        - minio
+        - server
+        - --address=:9000
+        - --console-address=:9090
+        - http://minio-sts-{0...3}.minio-hsvc.minio-ns.svc.cluster.local/data
+        envFrom:
+        - configMapRef:
+            name: minio-config
+        - secretRef:
+            name: minio-secret
+        resources:
+          requests:
+            cpu: 500m
+            memory: 1Gi
+          limits:
+            cpu: 500m
+            memory: 1Gi
+        ports:
+        - name: minio-data 
+          containerPort: 9000
+        - name: minio-console
+          containerPort: 9090
+        # livenessProbe:
+        #   httpGet:
+        #     path: /health/live 
+        #     port: 9000
+        #   periodSeconds: 30
+        #   timeoutSeconds: 3
+        #   failureThreshold: 3
+        # readinessProbe:
+        #   httpGet:
+        #     path: /health/ready
+        #     port: 9000
+        #   periodSeconds: 30
+        #   timeoutSeconds: 3
+        #   failureThreshold: 3
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: minio-ing
+  namespace: minio-ns
+  labels:
+    app: minio
+    name: minio-ing
+  annotations:
+    nginx.ingress.kubernetes.io/limit-rps: "10"
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: data-157.230.193.55.nip.io
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: minio-svc
+            port:
+              number: 9000
+  - host: console-157.230.193.55.nip.io
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: minio-svc
+            port:
+              number: 9090
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: minio-hpa
+  namespace: minio-ns
+  labels:
+    app: minio
+    name: minio-hpa
+spec:
+  minReplicas: 4
+  maxReplicas: 6
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: StatefulSet
+    name: minio-sts
+  metrics:
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 30
